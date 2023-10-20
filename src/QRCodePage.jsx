@@ -7,10 +7,17 @@ function QRCodePage() {
   const driveLink =
     "https://drive.google.com/file/d/1CYGkMAMFXhsfwFnlYCddVLfaxxbsRc5I/view?usp=sharing";
 
+  const containerStyle = {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100vh", // Center vertically in the viewport
+  };
+
   return (
-    <div>
+    <div style={containerStyle}>
       <QRCode value={menuLink} />
-      <p>Scan to view the menu</p>
     </div>
   );
 }

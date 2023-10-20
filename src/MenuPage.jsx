@@ -22,39 +22,31 @@ import {
   Page20,
   Page21,
 } from "./asset";
-import { Document, Page } from "react-pdf";
 
 function MenuPage() {
-  const [numPages, setNumPages] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
-
-  function onDocumentLoadSuccess({ numPages }) {
-    setNumPages(numPages);
-  }
-
   return (
     <div className="menu">
-      <img src={Page1} />
-      <img src={Page2} />
-      <img src={Page3} />
-      <img src={Page4} />
-      <img src={Page5} />
-      <img src={Page6} />
-      <img src={Page7} />
-      <img src={Page8} />
-      <img src={Page9} />
-      <img src={Page10} />
-      <img src={Page11} />
-      <img src={Page12} />
-      <img src={Page13} />
-      <img src={Page14} />
-      <img src={Page15} />
-      <img src={Page16} />
-      <img src={Page17} />
-      <img src={Page18} />
-      <img src={Page19} />
-      <img src={Page20} />
-      <img src={Page21} />
+      <img alt="menu" src={Page1} />
+      <img alt="menu" src={Page2} />
+      <img alt="menu" src={Page3} />
+      <img alt="menu" src={Page4} />
+      <img alt="menu" src={Page5} />
+      <img alt="menu" src={Page6} />
+      <img alt="menu" src={Page7} />
+      <img alt="menu" src={Page8} />
+      <img alt="menu" src={Page9} />
+      <img alt="menu" src={Page10} />
+      <img alt="menu" src={Page11} />
+      <img alt="menu" src={Page12} />
+      <img alt="menu" src={Page13} />
+      <img alt="menu" src={Page14} />
+      <img alt="menu" src={Page15} />
+      <img alt="menu" src={Page16} />
+      <img alt="menu" src={Page17} />
+      <img alt="menu" src={Page18} />
+      <img alt="menu" src={Page19} />
+      <img alt="menu" src={Page20} />
+      <img alt="menu" src={Page21} />
     </div>
   );
 }
