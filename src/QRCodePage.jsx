@@ -3,13 +3,13 @@ import QRCode from "qrcode.react";
 
 function QRCodePage() {
   // Replace 'your-pdf-menu-link' with the actual link to your PDF menu.
-  const menuLink = "https://seventhheaven.vercel.app/menu";
+  const menuLink = "https://qrcodelounge.vercel.app/menu";
   const driveLink =
     "https://drive.google.com/file/d/1CYGkMAMFXhsfwFnlYCddVLfaxxbsRc5I/view?usp=sharing";
 
   return (
     <div>
-      <QRCode value={driveLink} />
+      <QRCode value={menuLink} />
       <p>Scan to view the menu</p>
     </div>
   );
