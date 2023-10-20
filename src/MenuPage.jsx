@@ -55,10 +55,6 @@ function MenuPage() {
       <img src={Page19} />
       <img src={Page20} />
       <img src={Page21} />
-
-      <p>
-        Page {pageNumber} of {numPages}
-      </p>
     </div>
   );
 }
