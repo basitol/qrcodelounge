@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, {useState} from 'react';
 import {
   Page1,
   Page2,
@@ -21,32 +21,32 @@ import {
   Page19,
   Page20,
   Page21,
-} from "./asset";
+} from './asset';
 
 function MenuPage() {
   return (
-    <div className="menu">
-      <img alt="menu" src={Page1} />
-      <img alt="menu" src={Page2} />
-      <img alt="menu" src={Page3} />
-      <img alt="menu" src={Page4} />
-      <img alt="menu" src={Page5} />
-      <img alt="menu" src={Page6} />
-      <img alt="menu" src={Page7} />
-      <img alt="menu" src={Page8} />
-      <img alt="menu" src={Page9} />
-      <img alt="menu" src={Page10} />
-      <img alt="menu" src={Page11} />
-      <img alt="menu" src={Page12} />
-      <img alt="menu" src={Page13} />
-      <img alt="menu" src={Page14} />
-      <img alt="menu" src={Page15} />
-      <img alt="menu" src={Page16} />
+    <div className='menu'>
+      <img alt='menu' src={Page1} />
+      <img alt='menu' src={Page2} />
+      <img alt='menu' src={Page3} />
+      <img alt='menu' src={Page4} />
+      <img alt='menu' src={Page5} />
+      <img alt='menu' src={Page6} />
+      <img alt='menu' src={Page7} />
+      <img alt='menu' src={Page8} />
+      <img alt='menu' src={Page9} />
+      <img alt='menu' src={Page10} />
+      <img alt='menu' src={Page11} />
+      <img alt='menu' src={Page12} />
+      <img alt='menu' src={Page13} />
+      <img alt='menu' src={Page14} />
+      <img alt='menu' src={Page15} />
+      {/* <img alt="menu" src={Page16} />
       <img alt="menu" src={Page17} />
       <img alt="menu" src={Page18} />
       <img alt="menu" src={Page19} />
       <img alt="menu" src={Page20} />
-      <img alt="menu" src={Page21} />
+      <img alt="menu" src={Page21} /> */}
     </div>
   );
 }
