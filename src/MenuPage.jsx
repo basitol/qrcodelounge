@@ -41,12 +41,12 @@ function MenuPage() {
       <img alt='menu' src={Page13} />
       <img alt='menu' src={Page14} />
       <img alt='menu' src={Page15} />
-      {/* <img alt="menu" src={Page16} />
-      <img alt="menu" src={Page17} />
-      <img alt="menu" src={Page18} />
-      <img alt="menu" src={Page19} />
-      <img alt="menu" src={Page20} />
-      <img alt="menu" src={Page21} /> */}
+      <img alt='menu' src={Page16} />
+      <img alt='menu' src={Page17} />
+      <img alt='menu' src={Page18} />
+      <img alt='menu' src={Page19} />
+      <img alt='menu' src={Page20} />
+      <img alt='menu' src={Page21} />
     </div>
   );
 }
