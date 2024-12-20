@@ -15,13 +15,13 @@ import {
   Page13,
   Page14,
   Page15,
-  // Page16,
-  // Page17,
-  // Page18,
-  // Page19,
-  // Page20,
-  // Page21,
-  // Page22,
+  Page16,
+  Page17,
+  Page18,
+  Page19,
+  Page20,
+  Page21,
+  Page22,
 } from './asset';
 
 function MenuPage() {
@@ -42,13 +42,13 @@ function MenuPage() {
       <img alt='menu' src={Page13} />
       <img alt='menu' src={Page14} />
       <img alt='menu' src={Page15} />
-      {/* <img alt='menu' src={Page16} />
+      <img alt='menu' src={Page16} />
       <img alt='menu' src={Page17} />
       <img alt='menu' src={Page18} />
       <img alt='menu' src={Page19} />
       <img alt='menu' src={Page20} />
       <img alt='menu' src={Page21} />
-      <img alt='menu' src={Page22} /> */}
+      <img alt='menu' src={Page22} />
     </div>
   );
 }
