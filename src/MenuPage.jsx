@@ -5,64 +5,95 @@ import {Document, Page, pdfjs} from 'react-pdf';
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 function MenuPage() {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
   const [imageUrls, setImageUrls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [menuVersion, setMenuVersion] = useState(1);
 
   // Get credentials from environment variables
-  const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
-  const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
+  const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
 
   useEffect(() => {
     // Try to get the image URLs from localStorage
     const savedUrls = localStorage.getItem('menuImageUrls');
-    const savedTotalPages = localStorage.getItem('menuTotalPages');
+    const savedVersion = localStorage.getItem('menuVersion');
 
-    if (savedUrls && savedTotalPages) {
+    if (savedUrls) {
       setImageUrls(JSON.parse(savedUrls));
-      setTotalPages(parseInt(savedTotalPages, 10));
+      if (savedVersion) {
+        setMenuVersion(parseInt(savedVersion, 10));
+      }
       setLoading(false);
     } else {
       // Try to fetch default images if they exist
       const checkDefaultImages = async () => {
         try {
-          // Check if we can access the first image
-          const response = await fetch(
-            `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
-          );
+          // First try to determine the latest version
+          let latestVersion = 1;
+          let versionFound = false;
 
-          if (response.ok) {
-            // If first image exists, try to find how many pages there are
-            let pageCount = 1;
-            const defaultUrls = [
-              `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
-            ];
-
-            // Try to find more pages (up to a reasonable limit)
-            for (let i = 2; i <= 30; i++) {
-              try {
-                const nextResponse = await fetch(
-                  `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${i}.jpg`,
-                );
-                if (nextResponse.ok) {
-                  pageCount++;
-                  defaultUrls.push(
-                    `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${i}.jpg`,
-                  );
-                } else {
-                  break;
-                }
-              } catch {
+          // Try versions 1-10 to find the latest
+          for (let v = 10; v >= 1; v--) {
+            try {
+              const versionResponse = await fetch(
+                `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`,
+              );
+              if (versionResponse.ok) {
+                latestVersion = v;
+                versionFound = true;
                 break;
               }
+            } catch {
+              // Continue checking
+            }
+          }
+
+          // If no versioned menu found, try the unversioned format
+          if (!versionFound) {
+            const response = await fetch(
+              `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
+            );
+            if (response.ok) {
+              versionFound = true;
+            }
+          }
+
+          if (versionFound) {
+            // Now fetch all pages for the found version
+            const urls = [];
+            let pageCount = 0;
+            let checking = true;
+
+            while (checking) {
+              pageCount++;
+              try {
+                const pageUrl =
+                  versionFound && latestVersion > 1
+                    ? `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`
+                    : `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${pageCount}.jpg`;
+
+                const pageResponse = await fetch(pageUrl);
+                if (pageResponse.ok) {
+                  urls.push(pageUrl);
+                } else {
+                  checking = false;
+                }
+              } catch {
+                checking = false;
+              }
+
+              // Safety check to prevent infinite loop
+              if (pageCount > 50) checking = false;
             }
 
-            if (pageCount > 0) {
-              setImageUrls(defaultUrls);
-              setTotalPages(pageCount);
+            if (urls.length > 0) {
+              setImageUrls(urls);
+              setMenuVersion(latestVersion);
               setLoading(false);
+
+              // Save to localStorage for future use
+              localStorage.setItem('menuImageUrls', JSON.stringify(urls));
+              localStorage.setItem('menuVersion', latestVersion.toString());
             } else {
               setError('No menu images found');
               setLoading(false);
@@ -81,21 +112,6 @@ function MenuPage() {
       checkDefaultImages();
     }
   }, [CLOUD_NAME]);
-
-  function changePage(offset) {
-    setCurrentPage(prevPage => {
-      const newPage = prevPage + offset;
-      return Math.max(1, Math.min(newPage, totalPages));
-    });
-  }
-
-  function previousPage() {
-    changePage(-1);
-  }
-
-  function nextPage() {
-    changePage(1);
-  }
 
   if (loading) {
     return (
@@ -122,47 +138,31 @@ function MenuPage() {
   return (
     <div className='menu-container' style={styles.container}>
       {imageUrls.length > 0 ? (
-        <>
-          <div style={styles.imageContainer}>
-            <img
-              src={imageUrls[currentPage - 1]}
-              alt={`Menu page ${currentPage}`}
-              style={styles.menuImage}
-            />
+        <div style={styles.menuContent}>
+          {/* Restaurant name or logo could go here */}
+          <div style={styles.menuHeader}>
+            <h1 style={styles.menuTitle}>Our Menu</h1>
           </div>
 
-          {totalPages > 1 && (
-            <div
-              className='pagination-controls'
-              style={styles.paginationControls}>
-              <button
-                type='button'
-                disabled={currentPage <= 1}
-                onClick={previousPage}
-                style={{
-                  ...styles.pageButton,
-                  opacity: currentPage <= 1 ? 0.5 : 1,
-                  cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                }}>
-                Previous
-              </button>
-              <p style={styles.pageInfo}>
-                Page {currentPage} of {totalPages}
-              </p>
-              <button
-                type='button'
-                disabled={currentPage >= totalPages}
-                onClick={nextPage}
-                style={{
-                  ...styles.pageButton,
-                  opacity: currentPage >= totalPages ? 0.5 : 1,
-                  cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                }}>
-                Next
-              </button>
-            </div>
-          )}
-        </>
+          {/* Continuous scrollable menu */}
+          <div style={styles.menuPages}>
+            {imageUrls.map((url, index) => (
+              <div key={index} style={styles.menuPage}>
+                <img
+                  src={url}
+                  alt={`Menu page ${index + 1}`}
+                  style={styles.menuImage}
+                  loading='lazy' // Lazy load images for better performance
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Optional footer */}
+          <div style={styles.menuFooter}>
+            <p style={styles.footerText}>Thank you for dining with us!</p>
+          </div>
+        </div>
       ) : (
         <div style={styles.noMenu}>
           <p>No menu available. Please check back later.</p>
@@ -172,7 +172,7 @@ function MenuPage() {
   );
 }
 
-// Styles
+// Updated styles for continuous scrolling layout
 const styles = {
   container: {
     display: 'flex',
@@ -184,8 +184,34 @@ const styles = {
     minHeight: '100vh',
     backgroundColor: '#f9f9f9',
   },
-  imageContainer: {
-    maxWidth: '100%',
+  menuContent: {
+    width: '100%',
+    maxWidth: '800px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  menuHeader: {
+    width: '100%',
+    textAlign: 'center',
+    padding: '20px 0',
+    marginBottom: '10px',
+  },
+  menuTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#333',
+    margin: 0,
+  },
+  menuPages: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '15px', // Space between menu pages
+  },
+  menuPage: {
+    width: '100%',
     boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
     borderRadius: '8px',
     overflow: 'hidden',
@@ -195,6 +221,17 @@ const styles = {
     width: '100%',
     height: 'auto',
     display: 'block',
+  },
+  menuFooter: {
+    width: '100%',
+    textAlign: 'center',
+    padding: '20px 0',
+    marginTop: '20px',
+  },
+  footerText: {
+    fontSize: '16px',
+    color: '#666',
+    fontStyle: 'italic',
   },
   loading: {
     display: 'flex',
@@ -225,29 +262,6 @@ const styles = {
     borderRadius: '4px',
     cursor: 'pointer',
     marginTop: '20px',
-  },
-  paginationControls: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: '20px',
-    gap: '15px',
-  },
-  pageButton: {
-    padding: '10px 20px',
-    background: '#3498db',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontWeight: '500',
-    transition: 'background-color 0.3s ease',
-  },
-  pageInfo: {
-    margin: '0',
-    fontSize: '16px',
-    color: '#333',
-    fontWeight: '500',
   },
   noMenu: {
     textAlign: 'center',

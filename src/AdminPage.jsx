@@ -5,6 +5,11 @@ import {Document, Page, pdfjs} from 'react-pdf';
 // Set the worker source
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
+// Get credentials from environment variables
+const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
+const UPLOAD_PRESET =
+  process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET || 'qr_menu';
+
 function AdminPage() {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -18,13 +23,12 @@ function AdminPage() {
   const [currentMenuUrl, setCurrentMenuUrl] = useState(null);
   const [processingPdf, setProcessingPdf] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [menuVersion, setMenuVersion] = useState(1);
+  const [menuHistory, setMenuHistory] = useState([]);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   // Refs for canvas elements
   const canvasRef = useRef(null);
-
-  // Your Cloudinary cloud name - replace with your actual cloud name
-  const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
-  const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
 
   // Check if there's already a menu when the page loads
   useEffect(() => {
@@ -51,8 +55,19 @@ function AdminPage() {
   useEffect(() => {
     // Check if there are already uploaded images
     const savedUrls = localStorage.getItem('menuImageUrls');
+    const savedVersion = localStorage.getItem('menuVersion');
+    const savedHistory = localStorage.getItem('menuHistory');
+
     if (savedUrls) {
       setImageUrls(JSON.parse(savedUrls));
+    }
+
+    if (savedVersion) {
+      setMenuVersion(parseInt(savedVersion, 10));
+    }
+
+    if (savedHistory) {
+      setMenuHistory(JSON.parse(savedHistory));
     }
   }, []);
 
@@ -226,7 +241,7 @@ function AdminPage() {
         formData.append('file', imageFile);
         formData.append('upload_preset', UPLOAD_PRESET);
         formData.append('folder', 'menus');
-        formData.append('public_id', `menu-page-${i + 1}`);
+        formData.append('public_id', `menu-v${menuVersion}-page-${i + 1}`);
 
         // Upload to Cloudinary
         const response = await axios.post(
@@ -256,6 +271,148 @@ function AdminPage() {
       setProcessingProgress(0);
       setUploadProgress(0);
     }
+  };
+
+  // Handle complete menu replacement
+  const handleReplaceMenu = async () => {
+    if (files.length === 0) {
+      setError('Please select a PDF file');
+      return;
+    }
+
+    // Show confirmation dialog
+    setShowConfirmDialog(true);
+  };
+
+  // Confirm menu replacement
+  const confirmReplaceMenu = async () => {
+    setShowConfirmDialog(false);
+
+    // Check if the file is a PDF
+    const file = files[0];
+    if (file.type !== 'application/pdf') {
+      setError('Please upload a PDF file');
+      return;
+    }
+
+    setProcessingPdf(true);
+    setProcessingProgress(0);
+    setError(null);
+
+    try {
+      // Save current menu to history before replacing
+      if (imageUrls.length > 0) {
+        const updatedHistory = [...menuHistory];
+        updatedHistory.push({
+          version: menuVersion,
+          urls: imageUrls,
+          date: new Date().toISOString(),
+          pageCount: imageUrls.length,
+        });
+
+        // Keep only the last 5 versions to save space
+        if (updatedHistory.length > 5) {
+          updatedHistory.shift();
+        }
+
+        setMenuHistory(updatedHistory);
+        localStorage.setItem('menuHistory', JSON.stringify(updatedHistory));
+      }
+
+      // Increment menu version
+      const newVersion = menuVersion + 1;
+      setMenuVersion(newVersion);
+      localStorage.setItem('menuVersion', newVersion.toString());
+
+      // Load the PDF document
+      const fileUrl = URL.createObjectURL(file);
+      const loadingTask = pdfjs.getDocument(fileUrl);
+      const pdf = await loadingTask.promise;
+
+      // Get the total number of pages
+      const totalPages = pdf.numPages;
+      const imageBlobs = [];
+
+      // Process each page
+      for (let i = 1; i <= totalPages; i++) {
+        // Update processing progress
+        setProcessingProgress(Math.round((i / totalPages) * 50)); // First 50% for processing
+
+        // Render page to blob
+        const blob = await renderPageToBlob(pdf, i);
+        imageBlobs.push(blob);
+      }
+
+      // Clean up
+      URL.revokeObjectURL(fileUrl);
+
+      // Now upload each image to Cloudinary with version in the public_id
+      setUploading(true);
+      setUploadProgress(0);
+
+      const uploadedUrls = [];
+
+      for (let i = 0; i < imageBlobs.length; i++) {
+        // Create a file from the blob
+        const imageFile = new File([imageBlobs[i]], `page-${i + 1}.jpg`, {
+          type: 'image/jpeg',
+        });
+
+        // Create FormData with version in the public_id
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        formData.append('upload_preset', UPLOAD_PRESET);
+        formData.append('folder', 'menus');
+        formData.append('public_id', `menu-v${newVersion}-page-${i + 1}`);
+
+        // Upload to Cloudinary
+        const response = await axios.post(
+          `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
+          formData,
+        );
+
+        uploadedUrls.push(response.data.secure_url);
+
+        // Update upload progress (50% to 100%)
+        setUploadProgress(50 + Math.round(((i + 1) / imageBlobs.length) * 50));
+      }
+
+      // Store the new image URLs in localStorage
+      localStorage.setItem('menuImageUrls', JSON.stringify(uploadedUrls));
+      localStorage.setItem('menuTotalPages', uploadedUrls.length.toString());
+
+      setImageUrls(uploadedUrls);
+      console.log('Menu replaced successfully:', uploadedUrls);
+      setUploadSuccess(true);
+    } catch (err) {
+      console.error('Error processing or uploading:', err);
+      setError('Failed to process or upload the PDF. Please try again.');
+    } finally {
+      setProcessingPdf(false);
+      setUploading(false);
+      setProcessingProgress(0);
+      setUploadProgress(0);
+    }
+  };
+
+  // Cancel menu replacement
+  const cancelReplaceMenu = () => {
+    setShowConfirmDialog(false);
+  };
+
+  // Restore a previous menu version
+  const restorePreviousVersion = historyItem => {
+    // Update current menu with the selected historical version
+    setImageUrls(historyItem.urls);
+    localStorage.setItem('menuImageUrls', JSON.stringify(historyItem.urls));
+    localStorage.setItem('menuTotalPages', historyItem.pageCount.toString());
+
+    // Increment version for the restored menu
+    const newVersion = menuVersion + 1;
+    setMenuVersion(newVersion);
+    localStorage.setItem('menuVersion', newVersion.toString());
+
+    setUploadSuccess(true);
   };
 
   return (
@@ -580,6 +737,24 @@ function AdminPage() {
                 }}>
                 Cancel
               </button>
+              {imageUrls.length > 0 && (
+                <button
+                  onClick={handleReplaceMenu}
+                  disabled={processingPdf || uploading || files.length === 0}
+                  style={{
+                    ...styles.replaceButton,
+                    opacity:
+                      processingPdf || uploading || files.length === 0
+                        ? 0.6
+                        : 1,
+                    cursor:
+                      processingPdf || uploading || files.length === 0
+                        ? 'not-allowed'
+                        : 'pointer',
+                  }}>
+                  Replace Entire Menu
+                </button>
+              )}
               <button
                 onClick={handleUpload}
                 disabled={processingPdf || uploading || files.length === 0}
@@ -702,6 +877,61 @@ function AdminPage() {
           </div>
         </div>
       </div>
+
+      {/* Menu History Section */}
+      {menuHistory.length > 0 && (
+        <div style={styles.historySection}>
+          <h3 style={styles.historyTitle}>Menu History</h3>
+          <div style={styles.historyList}>
+            {menuHistory.map((item, index) => (
+              <div key={index} style={styles.historyItem}>
+                <div style={styles.historyInfo}>
+                  <span style={styles.historyVersion}>
+                    Version {item.version}
+                  </span>
+                  <span style={styles.historyDate}>
+                    {new Date(item.date).toLocaleDateString()} -{' '}
+                    {new Date(item.date).toLocaleTimeString()}
+                  </span>
+                  <span style={styles.historyPages}>
+                    {item.pageCount} pages
+                  </span>
+                </div>
+                <button
+                  onClick={() => restorePreviousVersion(item)}
+                  style={styles.restoreButton}>
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <h3 style={styles.modalTitle}>Replace Entire Menu?</h3>
+            <p style={styles.modalText}>
+              This will replace your current menu with the new PDF. The current
+              menu will be saved in history.
+            </p>
+            <div style={styles.modalButtons}>
+              <button
+                onClick={cancelReplaceMenu}
+                style={styles.modalCancelButton}>
+                Cancel
+              </button>
+              <button
+                onClick={confirmReplaceMenu}
+                style={styles.modalConfirmButton}>
+                Replace Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1070,6 +1300,122 @@ const styles = {
     borderRadius: '5px',
     fontWeight: '500',
     boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)',
+  },
+  replaceButton: {
+    padding: '12px 20px',
+    background: '#ff9800',
+    color: 'white',
+    border: 'none',
+    borderRadius: '5px',
+    fontWeight: '500',
+    boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)',
+  },
+  historySection: {
+    background: 'white',
+    borderRadius: '10px',
+    padding: '25px 30px',
+    marginBottom: '40px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
+  },
+  historyTitle: {
+    fontSize: '20px',
+    fontWeight: '600',
+    marginTop: 0,
+    marginBottom: '15px',
+    color: '#2c3e50',
+  },
+  historyList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  historyItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '15px',
+    borderRadius: '8px',
+    border: '1px solid #eee',
+    background: '#f9f9f9',
+  },
+  historyInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '5px',
+  },
+  historyVersion: {
+    fontWeight: '600',
+    color: '#333',
+  },
+  historyDate: {
+    fontSize: '14px',
+    color: '#666',
+  },
+  historyPages: {
+    fontSize: '14px',
+    color: '#666',
+  },
+  restoreButton: {
+    padding: '8px 15px',
+    background: '#4A90E2',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    background: 'white',
+    borderRadius: '10px',
+    padding: '30px',
+    width: '90%',
+    maxWidth: '500px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+  },
+  modalTitle: {
+    fontSize: '20px',
+    fontWeight: '600',
+    marginTop: 0,
+    marginBottom: '15px',
+    color: '#2c3e50',
+  },
+  modalText: {
+    marginBottom: '20px',
+    color: '#666',
+    lineHeight: '1.5',
+  },
+  modalButtons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '15px',
+  },
+  modalCancelButton: {
+    padding: '10px 15px',
+    background: 'white',
+    color: '#666',
+    border: '1px solid #ddd',
+    borderRadius: '5px',
+    cursor: 'pointer',
+  },
+  modalConfirmButton: {
+    padding: '10px 15px',
+    background: '#ff5252',
+    color: 'white',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer',
   },
 };
 
