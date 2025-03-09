@@ -41,7 +41,7 @@ function MenuPage() {
             ];
 
             // Try to find more pages (up to a reasonable limit)
-            for (let i = 2; i <= 20; i++) {
+            for (let i = 2; i <= 30; i++) {
               try {
                 const nextResponse = await fetch(
                   `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${i}.jpg`,
