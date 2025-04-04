@@ -236,12 +236,14 @@ function AdminPage() {
           type: 'image/jpeg',
         });
 
-        // Create FormData
+        // Add a timestamp to the first image metadata
+        const timestamp = new Date().toISOString();
         const formData = new FormData();
         formData.append('file', imageFile);
         formData.append('upload_preset', UPLOAD_PRESET);
         formData.append('folder', 'menus');
         formData.append('public_id', `menu-v${menuVersion}-page-${i + 1}`);
+        formData.append('context', `timestamp=${timestamp}`); // Add metadata
 
         // Upload to Cloudinary
         const response = await axios.post(
@@ -255,12 +257,11 @@ function AdminPage() {
         setUploadProgress(50 + Math.round(((i + 1) / imageBlobs.length) * 50));
       }
 
-      // Store the image URLs in localStorage
-      localStorage.setItem('menuImageUrls', JSON.stringify(uploadedUrls));
-      localStorage.setItem('menuTotalPages', uploadedUrls.length.toString());
-
+      // Just set state for the current session
       setImageUrls(uploadedUrls);
-      console.log('Images uploaded successfully:', uploadedUrls);
+      setUploadSuccess(true);
+
+      // Show success message
       setUploadSuccess(true);
     } catch (err) {
       console.error('Error processing or uploading:', err);
