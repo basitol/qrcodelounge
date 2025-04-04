@@ -4,116 +4,119 @@ import {Document, Page, pdfjs} from 'react-pdf';
 // Set the worker source
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
+// Get credentials from environment variables
+const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
+
 function MenuPage() {
   const [imageUrls, setImageUrls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [menuVersion, setMenuVersion] = useState(1);
+  const [lastChecked, setLastChecked] = useState(null);
 
-  // Get credentials from environment variables
-  const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
+  // Function to fetch the latest menu images
+  const fetchLatestMenuImages = async () => {
+    setLoading(true);
+    try {
+      // First, determine the latest menu version
+      let latestVersion = 1;
+      let versionFound = false;
 
-  useEffect(() => {
-    // Try to get the image URLs from localStorage
-    const savedUrls = localStorage.getItem('menuImageUrls');
-    const savedVersion = localStorage.getItem('menuVersion');
-
-    if (savedUrls) {
-      setImageUrls(JSON.parse(savedUrls));
-      if (savedVersion) {
-        setMenuVersion(parseInt(savedVersion, 10));
-      }
-      setLoading(false);
-    } else {
-      // Try to fetch default images if they exist
-      const checkDefaultImages = async () => {
+      // Try versions 1-20 to find the latest (checking backwards from 20)
+      for (let v = 20; v >= 1; v--) {
         try {
-          // First try to determine the latest version
-          let latestVersion = 1;
-          let versionFound = false;
+          const response = await fetch(
+            `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`,
+            {method: 'HEAD'},
+          );
 
-          // Try versions 1-10 to find the latest
-          for (let v = 10; v >= 1; v--) {
-            try {
-              const versionResponse = await fetch(
-                `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`,
-              );
-              if (versionResponse.ok) {
-                latestVersion = v;
-                versionFound = true;
-                break;
-              }
-            } catch {
-              // Continue checking
-            }
+          if (response.ok) {
+            latestVersion = v;
+            versionFound = true;
+            break;
           }
-
-          // If no versioned menu found, try the unversioned format
-          if (!versionFound) {
-            const response = await fetch(
-              `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
-            );
-            if (response.ok) {
-              versionFound = true;
-            }
-          }
-
-          if (versionFound) {
-            // Now fetch all pages for the found version
-            const urls = [];
-            let pageCount = 0;
-            let checking = true;
-
-            while (checking) {
-              pageCount++;
-              try {
-                const pageUrl =
-                  versionFound && latestVersion > 1
-                    ? `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`
-                    : `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${pageCount}.jpg`;
-
-                const pageResponse = await fetch(pageUrl);
-                if (pageResponse.ok) {
-                  urls.push(pageUrl);
-                } else {
-                  checking = false;
-                }
-              } catch {
-                checking = false;
-              }
-
-              // Safety check to prevent infinite loop
-              if (pageCount > 50) checking = false;
-            }
-
-            if (urls.length > 0) {
-              setImageUrls(urls);
-              setMenuVersion(latestVersion);
-              setLoading(false);
-
-              // Save to localStorage for future use
-              localStorage.setItem('menuImageUrls', JSON.stringify(urls));
-              localStorage.setItem('menuVersion', latestVersion.toString());
-            } else {
-              setError('No menu images found');
-              setLoading(false);
-            }
-          } else {
-            setError('No menu available. Please check back later.');
-            setLoading(false);
-          }
-        } catch (err) {
-          console.error('Error checking for default images:', err);
-          setError('Failed to load menu. Please try again later.');
-          setLoading(false);
+        } catch {
+          // Continue checking
         }
-      };
+      }
 
-      checkDefaultImages();
+      // If no version found, try the unversioned format as fallback
+      if (!versionFound) {
+        try {
+          const response = await fetch(
+            `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
+            {method: 'HEAD'},
+          );
+
+          if (response.ok) {
+            versionFound = true;
+            latestVersion = 1; // Default to version 1 for unversioned
+          }
+        } catch {
+          // No menu found
+        }
+      }
+
+      // Now fetch all pages for the latest version
+      if (versionFound) {
+        const urls = [];
+        let pageCount = 1;
+        let checking = true;
+
+        while (checking) {
+          try {
+            // Construct URL based on whether versioning is used
+            const pageUrl =
+              versionFound && latestVersion > 0
+                ? `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`
+                : `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${pageCount}.jpg`;
+
+            const response = await fetch(pageUrl, {method: 'HEAD'});
+
+            if (response.ok) {
+              urls.push(pageUrl);
+              pageCount++;
+            } else {
+              checking = false;
+            }
+          } catch {
+            checking = false;
+          }
+
+          // Safety check to prevent infinite loop
+          if (pageCount > 50) checking = false;
+        }
+
+        if (urls.length > 0) {
+          setImageUrls(urls);
+          setLastChecked(new Date());
+        } else {
+          setError('No menu pages found');
+        }
+      } else {
+        setError('No menu available. Please check back later.');
+      }
+    } catch (err) {
+      console.error('Error fetching menu:', err);
+      setError('Failed to load menu. Please try again later.');
+    } finally {
+      setLoading(false);
     }
-  }, [CLOUD_NAME]);
+  };
 
-  if (loading) {
+  // Initial fetch on component mount
+  useEffect(() => {
+    fetchLatestMenuImages();
+
+    // Optional: Set up periodic refresh every 5 minutes
+    const refreshInterval = setInterval(() => {
+      fetchLatestMenuImages();
+    }, 5 * 60 * 1000);
+
+    // Clean up interval on component unmount
+    return () => clearInterval(refreshInterval);
+  }, []);
+
+  if (loading && imageUrls.length === 0) {
     return (
       <div className='menu-loading' style={styles.loading}>
         <div className='spinner' style={styles.spinner}></div>
@@ -122,13 +125,11 @@ function MenuPage() {
     );
   }
 
-  if (error) {
+  if (error && imageUrls.length === 0) {
     return (
       <div className='menu-error' style={styles.error}>
         <p>{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          style={styles.retryButton}>
+        <button onClick={fetchLatestMenuImages} style={styles.retryButton}>
           Retry
         </button>
       </div>
@@ -142,6 +143,17 @@ function MenuPage() {
           {/* Restaurant name or logo could go here */}
           <div style={styles.menuHeader}>
             <h1 style={styles.menuTitle}>Our Menu</h1>
+            {lastChecked && (
+              <p style={styles.menuRefreshInfo}>
+                Last updated: {lastChecked.toLocaleTimeString()}
+                <button
+                  onClick={fetchLatestMenuImages}
+                  style={styles.refreshButton}
+                  aria-label='Refresh menu'>
+                  ↻
+                </button>
+              </p>
+            )}
           </div>
 
           {/* Continuous scrollable menu */}
@@ -202,6 +214,28 @@ const styles = {
     fontWeight: '700',
     color: '#333',
     margin: 0,
+  },
+  menuRefreshInfo: {
+    fontSize: '14px',
+    color: '#666',
+    margin: '10px 0 0 0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+  },
+  refreshButton: {
+    background: 'none',
+    border: '1px solid #ddd',
+    borderRadius: '50%',
+    width: '24px',
+    height: '24px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
   },
   menuPages: {
     width: '100%',
