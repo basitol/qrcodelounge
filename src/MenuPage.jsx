@@ -7,38 +7,82 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 // Get credentials from environment variables
 const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
 
+// Add this after your existing imports
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+
 function MenuPage() {
   const [imageUrls, setImageUrls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);
+  const [debugInfo, setDebugInfo] = useState({});
+  const [showDebugInfo, setShowDebugInfo] = useState(IS_DEVELOPMENT);
 
   // Function to fetch the latest menu images
   const fetchLatestMenuImages = async () => {
     setLoading(true);
+
+    // Create debug collection object
+    const debug = {
+      device: {
+        userAgent: navigator.userAgent,
+        isMobile: /Mobile|Android|iPhone/i.test(navigator.userAgent),
+        screenWidth: window.innerWidth,
+      },
+      environment: process.env.NODE_ENV,
+      checks: [],
+      results: {
+        versionFound: false,
+        latestVersion: 0,
+        urlsFound: 0,
+      },
+      timing: {
+        start: new Date().toISOString(),
+        duration: 0,
+      },
+    };
+
     try {
       // Simple, practical version detection
       let latestVersion = 0;
       let versionFound = false;
 
-      // Start from a reasonable maximum and work backwards
-      // This balances efficiency with simplicity
-      const maxVersionToCheck = 100; // Well above your current v40-something
+      const maxVersionToCheck = 100;
 
       for (let v = maxVersionToCheck; v >= 1; v--) {
         try {
-          const response = await fetch(
-            `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`,
-            {method: 'HEAD'},
-          );
+          // Record what we're checking
+          const checkUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`;
+          const checkStart = Date.now();
+
+          // Try to fetch this version
+          const response = await fetch(checkUrl, {method: 'HEAD'});
+
+          // Record result and timing
+          debug.checks.push({
+            version: v,
+            url: checkUrl,
+            status: response.status,
+            ok: response.ok,
+            timeMs: Date.now() - checkStart,
+          });
 
           if (response.ok) {
             latestVersion = v;
             versionFound = true;
+
+            // Update debug info
+            debug.results.versionFound = true;
+            debug.results.latestVersion = v;
+
             break;
           }
-        } catch {
-          // Continue checking
+        } catch (err) {
+          // Continue checking but record error
+          debug.checks.push({
+            version: v,
+            error: err.message,
+          });
         }
       }
 
@@ -50,15 +94,11 @@ function MenuPage() {
 
         while (checking) {
           try {
-            // Construct URL based on whether versioning is used
-            const pageUrl =
-              versionFound && latestVersion > 0
-                ? `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`
-                : `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${pageCount}.jpg`;
+            const pageUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`;
 
-            const response = await fetch(pageUrl, {method: 'HEAD'});
+            const pageResponse = await fetch(pageUrl, {method: 'HEAD'});
 
-            if (response.ok) {
+            if (pageResponse.ok) {
               urls.push(pageUrl);
               pageCount++;
             } else {
@@ -75,17 +115,30 @@ function MenuPage() {
         if (urls.length > 0) {
           setImageUrls(urls);
           setLastChecked(new Date());
+
+          // Update debug info
+          debug.results.urlsFound = urls.length;
+          debug.results.firstUrl = urls[0];
+          debug.results.lastUrl = urls[urls.length - 1];
         } else {
           setError('No menu pages found');
+          debug.results.error = 'No menu pages found';
         }
       } else {
         setError('No menu available. Please check back later.');
+        debug.results.error = 'No menu available';
       }
     } catch (err) {
       console.error('Error fetching menu:', err);
       setError('Failed to load menu. Please try again later.');
+      debug.results.error = err.message;
     } finally {
       setLoading(false);
+
+      // Finalize debug info
+      debug.timing.end = new Date().toISOString();
+      debug.timing.duration = new Date() - new Date(debug.timing.start);
+      setDebugInfo(debug);
     }
   };
 
@@ -164,6 +217,22 @@ function MenuPage() {
       ) : (
         <div style={styles.noMenu}>
           <p>No menu available. Please check back later.</p>
+        </div>
+      )}
+
+      {/* Debug info panel - add this at the end */}
+      {showDebugInfo && (
+        <div style={styles.debugPanel}>
+          <div
+            style={styles.debugHeader}
+            onClick={() => setShowDebugInfo(!showDebugInfo)}>
+            Debug Info {showDebugInfo ? '▼' : '▶'}
+          </div>
+          {showDebugInfo && (
+            <pre style={styles.debugContent}>
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          )}
         </div>
       )}
     </div>
@@ -292,6 +361,31 @@ const styles = {
     boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
     width: '80%',
     maxWidth: '600px',
+  },
+  debugPanel: {
+    position: 'fixed',
+    bottom: '10px',
+    right: '10px',
+    width: '300px',
+    maxHeight: '400px',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    color: '#00ff00',
+    borderRadius: '5px',
+    fontSize: '12px',
+    zIndex: 9999,
+    overflow: 'hidden',
+  },
+  debugHeader: {
+    padding: '8px',
+    backgroundColor: '#333',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+  },
+  debugContent: {
+    padding: '8px',
+    maxHeight: '350px',
+    overflow: 'auto',
+    margin: 0,
   },
 };
 
