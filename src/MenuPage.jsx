@@ -17,12 +17,15 @@ function MenuPage() {
   const fetchLatestMenuImages = async () => {
     setLoading(true);
     try {
-      // First, determine the latest menu version
-      let latestVersion = 1;
+      // Simple, practical version detection
+      let latestVersion = 0;
       let versionFound = false;
 
-      // Try versions 1-20 to find the latest (checking backwards from 20)
-      for (let v = 20; v >= 1; v--) {
+      // Start from a reasonable maximum and work backwards
+      // This balances efficiency with simplicity
+      const maxVersionToCheck = 100; // Well above your current v40-something
+
+      for (let v = maxVersionToCheck; v >= 1; v--) {
         try {
           const response = await fetch(
             `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`,
@@ -36,23 +39,6 @@ function MenuPage() {
           }
         } catch {
           // Continue checking
-        }
-      }
-
-      // If no version found, try the unversioned format as fallback
-      if (!versionFound) {
-        try {
-          const response = await fetch(
-            `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
-            {method: 'HEAD'},
-          );
-
-          if (response.ok) {
-            versionFound = true;
-            latestVersion = 1; // Default to version 1 for unversioned
-          }
-        } catch {
-          // No menu found
         }
       }
 
