@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import axios from 'axios';
 import {Document, Page, pdfjs} from 'react-pdf';
+import MenuService from './services/MenuService';
 
 // Set the worker source
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -26,6 +27,7 @@ function AdminPage() {
   const [menuVersion, setMenuVersion] = useState(1);
   const [menuHistory, setMenuHistory] = useState([]);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Refs for canvas elements
   const canvasRef = useRef(null);
@@ -53,22 +55,39 @@ function AdminPage() {
   }, [CLOUD_NAME]);
 
   useEffect(() => {
-    // Check if there are already uploaded images
-    const savedUrls = localStorage.getItem('menuImageUrls');
-    const savedVersion = localStorage.getItem('menuVersion');
-    const savedHistory = localStorage.getItem('menuHistory');
+    const fetchMenuData = async () => {
+      setLoading(true);
+      try {
+        // Get current menu
+        const menu = await MenuService.getCurrentMenu();
 
-    if (savedUrls) {
-      setImageUrls(JSON.parse(savedUrls));
-    }
+        if (menu && menu.imageUrls) {
+          setImageUrls(menu.imageUrls);
+          setMenuVersion(menu.version || '1a');
+        }
 
-    if (savedVersion) {
-      setMenuVersion(parseInt(savedVersion, 10));
-    }
+        // Get menu history
+        const history = await MenuService.getMenuHistory();
+        setMenuHistory(Array.isArray(history) ? history : []);
+      } catch (err) {
+        console.error('Error fetching menu data:', err);
+        setError('Failed to load menu data');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (savedHistory) {
-      setMenuHistory(JSON.parse(savedHistory));
-    }
+    fetchMenuData();
+
+    // Also subscribe to real-time updates
+    const unsubscribe = MenuService.subscribeToMenu(result => {
+      if (result.success) {
+        setImageUrls(result.data.imageUrls);
+        setMenuVersion(result.data.version || '1a');
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleFileChange = e => {
@@ -200,77 +219,88 @@ function AdminPage() {
     setProcessingPdf(true);
     setProcessingProgress(0);
     setError(null);
+    setUploadProgress(0);
 
     try {
-      // Load the PDF document
+      // Process the PDF using pdfjs
+      // Load the PDF document - using a local object URL to avoid Cloudinary issues
       const fileUrl = URL.createObjectURL(file);
       const loadingTask = pdfjs.getDocument(fileUrl);
       const pdf = await loadingTask.promise;
-
-      // Get the total number of pages
       const totalPages = pdf.numPages;
+
+      // Process each page to an image
       const imageBlobs = [];
 
-      // Process each page
       for (let i = 1; i <= totalPages; i++) {
-        // Update processing progress
-        setProcessingProgress(Math.round((i / totalPages) * 50)); // First 50% for processing
+        // Render the page to a canvas
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({scale: 2.0});
 
-        // Render page to blob
-        const blob = await renderPageToBlob(pdf, i);
-        imageBlobs.push(blob);
-      }
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
 
-      // Clean up
-      URL.revokeObjectURL(fileUrl);
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+        }).promise;
 
-      // Now upload each image to Cloudinary
-      setUploading(true);
-      setUploadProgress(0);
-
-      const uploadedUrls = [];
-
-      for (let i = 0; i < imageBlobs.length; i++) {
-        // Create a file from the blob
-        const imageFile = new File([imageBlobs[i]], `page-${i + 1}.jpg`, {
-          type: 'image/jpeg',
+        // Convert canvas to blob
+        const blob = await new Promise(resolve => {
+          canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.95);
         });
 
-        // Add a timestamp to the first image metadata
-        const timestamp = new Date().toISOString();
-        const formData = new FormData();
-        formData.append('file', imageFile);
-        formData.append('upload_preset', UPLOAD_PRESET);
-        formData.append('folder', 'menus');
-        formData.append('public_id', `menu-v${menuVersion}-page-${i + 1}`);
-        formData.append('context', `timestamp=${timestamp}`); // Add metadata
+        imageBlobs.push(blob);
 
-        // Upload to Cloudinary
-        const response = await axios.post(
-          `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
-          formData,
-        );
-
-        uploadedUrls.push(response.data.secure_url);
-
-        // Update upload progress (50% to 100%)
-        setUploadProgress(50 + Math.round(((i + 1) / imageBlobs.length) * 50));
+        // Update progress
+        setProcessingProgress(Math.round((i / totalPages) * 100));
       }
 
-      // Just set state for the current session
-      setImageUrls(uploadedUrls);
-      setUploadSuccess(true);
+      // Clean up the URL object
+      URL.revokeObjectURL(fileUrl);
 
-      // Show success message
-      setUploadSuccess(true);
+      // Convert blobs to files
+      const imageFiles = imageBlobs.map((blob, index) => {
+        return new File([blob], `page-${index + 1}.jpg`, {
+          type: 'image/jpeg',
+        });
+      });
+
+      // Now use MenuService to upload the images and the PDF
+      setProcessingPdf(false);
+      setUploading(true);
+
+      const result = await MenuService.uploadImages(
+        imageFiles,
+        file, // Pass the original PDF file for proper uploading
+        progress => {
+          setUploadProgress(progress.progress);
+        },
+      );
+
+      if (result.success) {
+        // IMPORTANT: Use the exact same image URLs that were returned
+        setImageUrls(result.imageUrls);
+        setMenuVersion(result.version);
+        setUploadSuccess(true);
+
+        // Remove any local storage versions to avoid confusion
+        localStorage.removeItem('menuImageUrls');
+        localStorage.removeItem('menuVersion');
+        localStorage.removeItem('menuHistory');
+      } else {
+        setError(result.error || 'Failed to upload images');
+      }
     } catch (err) {
-      console.error('Error processing or uploading:', err);
-      setError('Failed to process or upload the PDF. Please try again.');
+      console.error('Error in upload process:', err);
+      setError('An unexpected error occurred: ' + err.message);
     } finally {
       setProcessingPdf(false);
       setUploading(false);
-      setProcessingProgress(0);
       setUploadProgress(0);
+      setProcessingProgress(0);
     }
   };
 
@@ -402,18 +432,25 @@ function AdminPage() {
   };
 
   // Restore a previous menu version
-  const restorePreviousVersion = historyItem => {
-    // Update current menu with the selected historical version
-    setImageUrls(historyItem.urls);
-    localStorage.setItem('menuImageUrls', JSON.stringify(historyItem.urls));
-    localStorage.setItem('menuTotalPages', historyItem.pageCount.toString());
+  const restorePreviousVersion = async historyItem => {
+    try {
+      setLoading(true);
 
-    // Increment version for the restored menu
-    const newVersion = menuVersion + 1;
-    setMenuVersion(newVersion);
-    localStorage.setItem('menuVersion', newVersion.toString());
+      const result = await MenuService.restoreMenu(historyItem);
 
-    setUploadSuccess(true);
+      if (result.success) {
+        setImageUrls(result.data.imageUrls);
+        setMenuVersion(result.data.version);
+        setUploadSuccess(true);
+      } else {
+        setError(result.error || 'Failed to restore previous menu version');
+      }
+    } catch (err) {
+      console.error('Error restoring menu version:', err);
+      setError('Failed to restore previous menu version');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -738,6 +775,8 @@ function AdminPage() {
                 }}>
                 Cancel
               </button>
+
+              {/* Remove or comment out this block to simplify
               {imageUrls.length > 0 && (
                 <button
                   onClick={handleReplaceMenu}
@@ -756,6 +795,8 @@ function AdminPage() {
                   Replace Entire Menu
                 </button>
               )}
+              */}
+
               <button
                 onClick={handleUpload}
                 disabled={processingPdf || uploading || files.length === 0}
@@ -891,8 +932,13 @@ function AdminPage() {
                     Version {item.version}
                   </span>
                   <span style={styles.historyDate}>
-                    {new Date(item.date).toLocaleDateString()} -{' '}
-                    {new Date(item.date).toLocaleTimeString()}
+                    {new Date(
+                      item.lastUpdated || item.timestamp,
+                    ).toLocaleDateString()}{' '}
+                    -{' '}
+                    {new Date(
+                      item.lastUpdated || item.timestamp,
+                    ).toLocaleTimeString()}
                   </span>
                   <span style={styles.historyPages}>
                     {item.pageCount} pages

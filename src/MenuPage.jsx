@@ -1,5 +1,8 @@
 import React, {useState, useEffect} from 'react';
 import {Document, Page, pdfjs} from 'react-pdf';
+import {ref, onValue} from 'firebase/database';
+import {database} from './firebase';
+import MenuService from './services/MenuService';
 
 // Set the worker source
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -17,6 +20,8 @@ function MenuPage() {
   const [lastChecked, setLastChecked] = useState(null);
   const [debugInfo, setDebugInfo] = useState({});
   const [showDebugInfo, setShowDebugInfo] = useState(IS_DEVELOPMENT);
+  const [menuInfo, setMenuInfo] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Function to fetch the latest menu images
   const fetchLatestMenuImages = async () => {
@@ -142,18 +147,72 @@ function MenuPage() {
     }
   };
 
-  // Initial fetch on component mount
   useEffect(() => {
-    fetchLatestMenuImages();
+    // Subscribe to menu updates from Firebase
+    const unsubscribe = MenuService.subscribeToMenu(result => {
+      setLoading(false);
+      setRefreshing(false);
 
-    // Optional: Set up periodic refresh every 5 minutes
-    const refreshInterval = setInterval(() => {
-      fetchLatestMenuImages();
-    }, 5 * 60 * 1000);
+      if (result.success) {
+        console.log('Menu Page received new menu data:', result.data); // Add logging
+        setImageUrls(result.data.imageUrls);
+        setMenuInfo({
+          version: result.data.version,
+          lastUpdated: new Date(result.data.lastUpdated),
+          pageCount: result.data.pageCount,
+          fromFallback: result.fromFallback,
+        });
+        setError(null);
+      } else {
+        setError(result.error || 'Failed to load menu');
+        // Keep existing menu if we have one
+        if (imageUrls.length === 0) {
+          setImageUrls([]);
+        }
+      }
+    });
 
-    // Clean up interval on component unmount
-    return () => clearInterval(refreshInterval);
+    // Cleanup on unmount
+    return () => unsubscribe();
   }, []);
+
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const menu = await MenuService.getCurrentMenu();
+      if (menu) {
+        setImageUrls(menu.imageUrls);
+        setMenuInfo({
+          version: menu.version,
+          lastUpdated: new Date(menu.lastUpdated),
+          pageCount: menu.pageCount,
+          fromFallback: menu.fromFallback,
+        });
+        setError(null);
+      } else {
+        // Try fallback
+        const fallback = await MenuService.getFallbackMenu();
+        if (fallback) {
+          setImageUrls(fallback.imageUrls);
+          setMenuInfo({
+            version: fallback.version,
+            lastUpdated: new Date(fallback.lastUpdated),
+            pageCount: fallback.pageCount,
+            fromFallback: true,
+          });
+          setError(null);
+        } else {
+          setError('No menu available. Please check back later.');
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing menu:', err);
+      setError('Failed to refresh menu');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (loading && imageUrls.length === 0) {
     return (
@@ -168,7 +227,7 @@ function MenuPage() {
     return (
       <div className='menu-error' style={styles.error}>
         <p>{error}</p>
-        <button onClick={fetchLatestMenuImages} style={styles.retryButton}>
+        <button onClick={handleRefresh} style={styles.retryButton}>
           Retry
         </button>
       </div>
@@ -182,14 +241,26 @@ function MenuPage() {
           {/* Restaurant name or logo could go here */}
           <div style={styles.menuHeader}>
             <h1 style={styles.menuTitle}>Our Menu</h1>
-            {lastChecked && (
-              <p style={styles.menuRefreshInfo}>
-                Last updated: {lastChecked.toLocaleTimeString()}
+            {menuInfo && (
+              <p style={styles.menuInfo}>
+                Version {menuInfo.version} •
+                {menuInfo.lastUpdated && (
+                  <>
+                    Last updated: {menuInfo.lastUpdated.toLocaleDateString()} at{' '}
+                    {menuInfo.lastUpdated.toLocaleTimeString()}
+                    {menuInfo.fromFallback && ' (Fallback version)'}
+                  </>
+                )}
                 <button
-                  onClick={fetchLatestMenuImages}
-                  style={styles.refreshButton}
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  style={{
+                    ...styles.refreshButton,
+                    opacity: refreshing ? 0.7 : 1,
+                    cursor: refreshing ? 'not-allowed' : 'pointer',
+                  }}
                   aria-label='Refresh menu'>
-                  ↻
+                  {refreshing ? '↻ Refreshing...' : '↻'}
                 </button>
               </p>
             )}
@@ -204,6 +275,11 @@ function MenuPage() {
                   alt={`Menu page ${index + 1}`}
                   style={styles.menuImage}
                   loading='lazy' // Lazy load images for better performance
+                  onError={e => {
+                    // Replace broken images with a placeholder
+                    e.target.src =
+                      'https://via.placeholder.com/800x1200?text=Menu+Image+Not+Available';
+                  }}
                 />
               </div>
             ))}
@@ -217,6 +293,9 @@ function MenuPage() {
       ) : (
         <div style={styles.noMenu}>
           <p>No menu available. Please check back later.</p>
+          <button onClick={handleRefresh} style={styles.retryButton}>
+            Check Again
+          </button>
         </div>
       )}
 
@@ -270,7 +349,7 @@ const styles = {
     color: '#333',
     margin: 0,
   },
-  menuRefreshInfo: {
+  menuInfo: {
     fontSize: '14px',
     color: '#666',
     margin: '10px 0 0 0',
