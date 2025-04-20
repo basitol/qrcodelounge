@@ -10,7 +10,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 // Get credentials from environment variables
 const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'ds7kjyrik';
 
-
 // Add this after your existing imports
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 
@@ -23,130 +22,6 @@ function MenuPage() {
   const [showDebugInfo, setShowDebugInfo] = useState(IS_DEVELOPMENT);
   const [menuInfo, setMenuInfo] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Function to fetch the latest menu images
-  const fetchLatestMenuImages = async () => {
-    setLoading(true);
-
-    // Create debug collection object
-    const debug = {
-      device: {
-        userAgent: navigator.userAgent,
-        isMobile: /Mobile|Android|iPhone/i.test(navigator.userAgent),
-        screenWidth: window.innerWidth,
-      },
-      environment: process.env.NODE_ENV,
-      checks: [],
-      results: {
-        versionFound: false,
-        latestVersion: 0,
-        urlsFound: 0,
-      },
-      timing: {
-        start: new Date().toISOString(),
-        duration: 0,
-      },
-    };
-
-    try {
-      // Simple, practical version detection
-      let latestVersion = 0;
-      let versionFound = false;
-
-      const maxVersionToCheck = 100;
-
-      for (let v = maxVersionToCheck; v >= 1; v--) {
-        try {
-          // Record what we're checking
-          const checkUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${v}-page-1.jpg`;
-          const checkStart = Date.now();
-
-          // Try to fetch this version
-          const response = await fetch(checkUrl, {method: 'HEAD'});
-
-          // Record result and timing
-          debug.checks.push({
-            version: v,
-            url: checkUrl,
-            status: response.status,
-            ok: response.ok,
-            timeMs: Date.now() - checkStart,
-          });
-
-          if (response.ok) {
-            latestVersion = v;
-            versionFound = true;
-
-            // Update debug info
-            debug.results.versionFound = true;
-            debug.results.latestVersion = v;
-
-            break;
-          }
-        } catch (err) {
-          // Continue checking but record error
-          debug.checks.push({
-            version: v,
-            error: err.message,
-          });
-        }
-      }
-
-      // Now fetch all pages for the latest version
-      if (versionFound) {
-        const urls = [];
-        let pageCount = 1;
-        let checking = true;
-
-        while (checking) {
-          try {
-            const pageUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-v${latestVersion}-page-${pageCount}.jpg`;
-
-            const pageResponse = await fetch(pageUrl, {method: 'HEAD'});
-
-            if (pageResponse.ok) {
-              urls.push(pageUrl);
-              pageCount++;
-            } else {
-              checking = false;
-            }
-          } catch {
-            checking = false;
-          }
-
-          // Safety check to prevent infinite loop
-          if (pageCount > 50) checking = false;
-        }
-
-        if (urls.length > 0) {
-          setImageUrls(urls);
-          setLastChecked(new Date());
-
-          // Update debug info
-          debug.results.urlsFound = urls.length;
-          debug.results.firstUrl = urls[0];
-          debug.results.lastUrl = urls[urls.length - 1];
-        } else {
-          setError('No menu pages found');
-          debug.results.error = 'No menu pages found';
-        }
-      } else {
-        setError('No menu available. Please check back later.');
-        debug.results.error = 'No menu available';
-      }
-    } catch (err) {
-      console.error('Error fetching menu:', err);
-      setError('Failed to load menu. Please try again later.');
-      debug.results.error = err.message;
-    } finally {
-      setLoading(false);
-
-      // Finalize debug info
-      debug.timing.end = new Date().toISOString();
-      debug.timing.duration = new Date() - new Date(debug.timing.start);
-      setDebugInfo(debug);
-    }
-  };
 
   useEffect(() => {
     // Subscribe to menu updates from Firebase
@@ -161,7 +36,6 @@ function MenuPage() {
           version: result.data.version,
           lastUpdated: new Date(result.data.lastUpdated),
           pageCount: result.data.pageCount,
-          fromFallback: result.fromFallback,
         });
         setError(null);
       } else {
@@ -188,28 +62,16 @@ function MenuPage() {
           version: menu.version,
           lastUpdated: new Date(menu.lastUpdated),
           pageCount: menu.pageCount,
-          fromFallback: menu.fromFallback,
         });
         setError(null);
       } else {
-        // Try fallback
-        const fallback = await MenuService.getFallbackMenu();
-        if (fallback) {
-          setImageUrls(fallback.imageUrls);
-          setMenuInfo({
-            version: fallback.version,
-            lastUpdated: new Date(fallback.lastUpdated),
-            pageCount: fallback.pageCount,
-            fromFallback: true,
-          });
-          setError(null);
-        } else {
-          setError('No menu available. Please check back later.');
-        }
+        setImageUrls([]);
+        setError('No menu available. Please check back later.');
+        setRefreshing(false);
       }
     } catch (err) {
       console.error('Error refreshing menu:', err);
-      setError('Failed to refresh menu');
+      setError('Failed to refresh menu. Please try again.');
     } finally {
       setRefreshing(false);
     }
@@ -249,7 +111,6 @@ function MenuPage() {
                   <>
                     Last updated: {menuInfo.lastUpdated.toLocaleDateString()} at{' '}
                     {menuInfo.lastUpdated.toLocaleTimeString()}
-                    {menuInfo.fromFallback && ' (Fallback version)'}
                   </>
                 )}
                 <button

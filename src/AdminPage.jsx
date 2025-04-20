@@ -450,6 +450,35 @@ function AdminPage() {
     }
   };
 
+  // Clear all menu data
+  const clearAllMenuData = async () => {
+    if (
+      window.confirm(
+        'Are you sure you want to clear all menu data? This cannot be undone.',
+      )
+    ) {
+      try {
+        setLoading(true);
+        const result = await MenuService.clearMenuData();
+
+        if (result.success) {
+          setImageUrls([]);
+          setMenuVersion('1a');
+          setMenuHistory([]);
+          setUploadSuccess(false);
+          alert('All menu data has been cleared successfully.');
+        } else {
+          setError(result.error || 'Failed to clear menu data');
+        }
+      } catch (err) {
+        console.error('Error clearing menu data:', err);
+        setError('Failed to clear menu data');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -951,6 +980,19 @@ function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* Admin Tools Section */}
+      <div style={styles.adminToolsSection}>
+        <h3 style={styles.adminToolsTitle}>Admin Tools</h3>
+        <div style={styles.adminToolsDescription}>
+          Warning: These actions cannot be undone. Use with caution.
+        </div>
+        <div style={styles.adminToolsButtons}>
+          <button onClick={clearAllMenuData} style={styles.dangerButton}>
+            Clear All Menu Data
+          </button>
+        </div>
+      </div>
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
@@ -1455,6 +1497,37 @@ const styles = {
   },
   modalConfirmButton: {
     padding: '10px 15px',
+    background: '#ff5252',
+    color: 'white',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer',
+  },
+  adminToolsSection: {
+    background: 'white',
+    borderRadius: '10px',
+    padding: '25px 30px',
+    marginBottom: '40px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
+  },
+  adminToolsTitle: {
+    fontSize: '20px',
+    fontWeight: '600',
+    marginTop: 0,
+    marginBottom: '15px',
+    color: '#2c3e50',
+  },
+  adminToolsDescription: {
+    color: '#666',
+    marginBottom: '20px',
+  },
+  adminToolsButtons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '15px',
+  },
+  dangerButton: {
+    padding: '12px 20px',
     background: '#ff5252',
     color: 'white',
     border: 'none',

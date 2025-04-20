@@ -28,7 +28,7 @@ class MenuService {
       return snapshot.exists() ? snapshot.val() : null;
     } catch (error) {
       console.error('Error getting current menu:', error);
-      return await this.getFallbackMenu();
+      return null; // Don't use fallback menu anymore
     }
   }
 
@@ -44,38 +44,18 @@ class MenuService {
             data: menuData,
           });
         } else {
-          // Try to get fallback menu
-          this.getFallbackMenu().then(fallbackMenu => {
-            if (fallbackMenu) {
-              callback({
-                success: true,
-                data: fallbackMenu,
-                fromFallback: true,
-              });
-            } else {
-              callback({
-                success: false,
-                error: 'No menu available',
-              });
-            }
+          // No more fallback, just report no menu available
+          callback({
+            success: false,
+            error: 'No menu available',
           });
         }
       },
       error => {
         console.error('Menu subscription error:', error);
-        this.getFallbackMenu().then(fallbackMenu => {
-          if (fallbackMenu) {
-            callback({
-              success: true,
-              data: fallbackMenu,
-              fromFallback: true,
-            });
-          } else {
-            callback({
-              success: false,
-              error: error.message,
-            });
-          }
+        callback({
+          success: false,
+          error: error.message,
         });
       },
     );
@@ -243,121 +223,6 @@ class MenuService {
     }
   }
 
-  // Fallback to Cloudinary direct check if Firebase fails
-  async getFallbackMenu() {
-    try {
-      console.log('Attempting to fetch fallback menu from Cloudinary');
-
-      // Try to find menus with the new versioning scheme first
-      for (let num = 10; num >= 1; num--) {
-        for (let letterCode = 122; letterCode >= 97; letterCode--) {
-          // 'z' to 'a'
-          const letter = String.fromCharCode(letterCode);
-          const version = `${num}${letter}`;
-
-          try {
-            const response = await fetch(
-              `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-${version}-page-1.jpg`,
-              {method: 'HEAD'},
-            );
-
-            if (response.ok) {
-              // Found versioned menu, collect all pages
-              const urls = [];
-              let pageCount = 1;
-              let checking = true;
-
-              while (checking) {
-                try {
-                  const pageUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-${version}-page-${pageCount}.jpg`;
-                  console.log('cloud name', CLOUD_NAME);
-                  const pageResponse = await fetch(pageUrl, {method: 'HEAD'});
-
-                  if (pageResponse.ok) {
-                    urls.push(pageUrl);
-                    pageCount++;
-                  } else {
-                    checking = false;
-                  }
-                } catch {
-                  checking = false;
-                }
-
-                // Safety check
-                if (pageCount > 50) checking = false;
-              }
-
-              if (urls.length > 0) {
-                return {
-                  imageUrls: urls,
-                  version: version,
-                  lastUpdated: new Date().toISOString(),
-                  pageCount: urls.length,
-                  fromFallback: true,
-                };
-              }
-            }
-          } catch {
-            // Continue checking
-          }
-        }
-      }
-
-      // If new versioning scheme not found, try the old numeric versioning
-      // (rest of the method remains unchanged)
-      try {
-        const response = await fetch(
-          `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-1.jpg`,
-          {method: 'HEAD'},
-        );
-
-        if (response.ok) {
-          // Found unversioned menu, collect all pages
-          const urls = [];
-          let pageCount = 1;
-          let checking = true;
-
-          while (checking) {
-            try {
-              const pageUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-page-${pageCount}.jpg`;
-              const pageResponse = await fetch(pageUrl, {method: 'HEAD'});
-
-              if (pageResponse.ok) {
-                urls.push(pageUrl);
-                pageCount++;
-              } else {
-                checking = false;
-              }
-            } catch {
-              checking = false;
-            }
-
-            // Safety check
-            if (pageCount > 50) checking = false;
-          }
-
-          if (urls.length > 0) {
-            return {
-              imageUrls: urls,
-              version: 'unversioned',
-              lastUpdated: new Date().toISOString(),
-              pageCount: urls.length,
-              fromFallback: true,
-            };
-          }
-        }
-      } catch {
-        // No unversioned menu found
-      }
-
-      // No menu found
-      return null;
-    } catch (error) {
-      console.error('Error getting fallback menu:', error);
-      return null;
-    }
-  }
-
   // Upload PDF and convert to images
   async uploadPdfAsImages(pdfFile, onProgress = () => {}, pdfjs) {
     try {
@@ -366,9 +231,33 @@ class MenuService {
 
       // Now get the current menu to determine next version
       const currentMenu = await this.getCurrentMenu();
-      const nextVersion = (currentMenu?.version || 0) + 1;
 
-      // Use pdfjs to render each page
+      // Determine the new version using alphanumeric scheme
+      let newVersion;
+
+      if (
+        currentMenu?.version &&
+        typeof currentMenu.version === 'string' &&
+        currentMenu.version.match(/^\d+[a-z]$/)
+      ) {
+        // If current version is in format "1a", "2b", etc.
+        const currentNumber = parseInt(
+          currentMenu.version.match(/^(\d+)[a-z]$/)[1],
+        );
+        const currentLetter = currentMenu.version.slice(-1);
+        const nextLetter = String.fromCharCode(currentLetter.charCodeAt(0) + 1);
+
+        // If we reach "z", move to next number
+        if (nextLetter > 'z') {
+          newVersion = `${currentNumber + 1}a`;
+        } else {
+          newVersion = `${currentNumber}${nextLetter}`;
+        }
+      } else {
+        // Start with "1a"
+        newVersion = '1a';
+      }
+
       // Use the passed in pdfjs instance
       if (!pdfjs) {
         throw new Error('PDF.js instance is required for PDF processing');
@@ -406,20 +295,16 @@ class MenuService {
         });
 
         // Create a file from the blob
-        const imageFile = new File(
-          [blob],
-          `menu-v${nextVersion}-page-${i}.jpg`,
-          {
-            type: 'image/jpeg',
-          },
-        );
+        const imageFile = new File([blob], `menu-${newVersion}-page-${i}.jpg`, {
+          type: 'image/jpeg',
+        });
 
-        // Upload the image
+        // Upload the image to Cloudinary
         const formData = new FormData();
         formData.append('file', imageFile);
         formData.append('upload_preset', UPLOAD_PRESET);
         formData.append('folder', 'menus');
-        formData.append('public_id', `menu-v${nextVersion}-page-${i}`);
+        formData.append('public_id', `menu-${newVersion}-page-${i}`);
 
         // Add timestamp metadata to the first image
         if (i === 1) {
@@ -429,16 +314,22 @@ class MenuService {
         const response = await axios.post(
           `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
           formData,
+          {
+            onUploadProgress: progressEvent => {
+              const progress = Math.round(
+                (progressEvent.loaded * 100) / progressEvent.total,
+              );
+              onProgress({
+                step: 'processing',
+                progress: Math.round(((i - 1) * 100 + progress) / totalPages),
+                currentPage: i,
+                totalPages,
+              });
+            },
+          },
         );
 
         uploadedUrls.push(response.data.secure_url);
-
-        onProgress({
-          step: 'processing',
-          progress: Math.round((i / totalPages) * 100),
-          currentPage: i,
-          totalPages,
-        });
       }
 
       // Clean up the object URL
@@ -450,7 +341,7 @@ class MenuService {
       return {
         success: true,
         imageUrls: uploadedUrls,
-        version: nextVersion,
+        version: newVersion,
       };
     } catch (error) {
       console.error('Error uploading PDF as images:', error);
@@ -495,7 +386,7 @@ class MenuService {
 
       console.log(`Creating new menu version: ${newVersion}`); // Add logging
 
-      // No longer uploading PDF files, even if provided
+      // No PDF upload
       let pdfUrl = null;
 
       // Upload each image to Cloudinary instead of Firebase Storage
@@ -540,7 +431,7 @@ class MenuService {
         }
       }
 
-      // Save to Firebase
+      // Save to Firebase Database (not Storage)
       const saveResult = await this.saveMenu(uploadedUrls, null);
 
       if (!saveResult.success) {
@@ -554,6 +445,23 @@ class MenuService {
       };
     } catch (error) {
       console.error('Error uploading images:', error);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  // Clear all menu data from Firebase
+  async clearMenuData() {
+    try {
+      await set(this.menuRef, null);
+      await set(this.historyRef, null);
+      return {
+        success: true,
+      };
+    } catch (error) {
+      console.error('Error clearing menu data:', error);
       return {
         success: false,
         error: error.message,
