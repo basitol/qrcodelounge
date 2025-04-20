@@ -1,11 +1,18 @@
 import {ref, set, get, onValue, off} from 'firebase/database';
 import {database} from '../firebase';
 import axios from 'axios';
+import {ref as storageRef, uploadBytes, getDownloadURL} from 'firebase/storage';
+import {storage} from '../firebase';
 
-// Fallback Cloudinary cloud name
-const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
-const UPLOAD_PRESET =
-  process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET || 'qr_menu';
+// Ensure your constants use the latest environment variables
+const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
+const UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
+
+// Add some logging to debug
+console.log('Using Cloudinary config:', {
+  cloudName: CLOUD_NAME,
+  uploadPreset: UPLOAD_PRESET,
+});
 
 class MenuService {
   constructor() {
@@ -263,6 +270,7 @@ class MenuService {
               while (checking) {
                 try {
                   const pageUrl = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/menus/menu-${version}-page-${pageCount}.jpg`;
+                  console.log('cloud name', CLOUD_NAME);
                   const pageResponse = await fetch(pageUrl, {method: 'HEAD'});
 
                   if (pageResponse.ok) {
@@ -353,40 +361,21 @@ class MenuService {
   // Upload PDF and convert to images
   async uploadPdfAsImages(pdfFile, onProgress = () => {}, pdfjs) {
     try {
-      // Upload the PDF to Cloudinary first
-      onProgress({step: 'uploading', progress: 0});
-
-      const pdfFormData = new FormData();
-      pdfFormData.append('file', pdfFile);
-      pdfFormData.append('upload_preset', UPLOAD_PRESET);
-      pdfFormData.append('folder', 'menus');
-
-      const pdfResponse = await axios.post(
-        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
-        pdfFormData,
-        {
-          onUploadProgress: progressEvent => {
-            const progress = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total,
-            );
-            onProgress({step: 'uploading', progress});
-          },
-        },
-      );
-
-      const pdfUrl = pdfResponse.data.secure_url;
+      // No longer uploading the PDF to Cloudinary
+      onProgress({step: 'processing', progress: 0});
 
       // Now get the current menu to determine next version
       const currentMenu = await this.getCurrentMenu();
       const nextVersion = (currentMenu?.version || 0) + 1;
 
       // Use pdfjs to render each page
-      onProgress({step: 'processing', progress: 0});
-
       // Use the passed in pdfjs instance
       if (!pdfjs) {
         throw new Error('PDF.js instance is required for PDF processing');
       }
+
+      // Create a local URL for the PDF file for processing
+      const pdfUrl = URL.createObjectURL(pdfFile);
 
       // Load the PDF
       const loadingTask = pdfjs.getDocument(pdfUrl);
@@ -452,13 +441,15 @@ class MenuService {
         });
       }
 
-      // Save menu data to Firebase
-      const result = await this.saveMenu(uploadedUrls, pdfUrl);
+      // Clean up the object URL
+      URL.revokeObjectURL(pdfUrl);
+
+      // Save menu data to Firebase (no PDF URL)
+      const result = await this.saveMenu(uploadedUrls, null);
 
       return {
         success: true,
         imageUrls: uploadedUrls,
-        pdfUrl,
         version: nextVersion,
       };
     } catch (error) {
@@ -504,90 +495,53 @@ class MenuService {
 
       console.log(`Creating new menu version: ${newVersion}`); // Add logging
 
-      // Upload the PDF first if provided
+      // No longer uploading PDF files, even if provided
       let pdfUrl = null;
-      if (pdfFile) {
-        onProgress({step: 'uploading-pdf', progress: 0});
 
-        const pdfFormData = new FormData();
-        pdfFormData.append('file', pdfFile);
-        pdfFormData.append('upload_preset', UPLOAD_PRESET);
-        pdfFormData.append('folder', 'menus');
-        // Upload as a raw file type for direct access
-        pdfFormData.append('resource_type', 'raw');
-
-        try {
-          const pdfResponse = await axios.post(
-            `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`,
-            pdfFormData,
-            {
-              onUploadProgress: progressEvent => {
-                const progress = Math.round(
-                  (progressEvent.loaded * 100) / progressEvent.total,
-                );
-                onProgress({step: 'uploading-pdf', progress});
-              },
-            },
-          );
-
-          pdfUrl = pdfResponse.data.secure_url;
-          console.log('PDF uploaded successfully:', pdfUrl);
-        } catch (pdfError) {
-          console.error('Error uploading PDF:', pdfError);
-          // Continue with image uploads even if PDF upload fails
-        }
-      }
-
-      // Upload each image to Cloudinary
+      // Upload each image to Cloudinary instead of Firebase Storage
       const uploadedUrls = [];
 
       for (let i = 0; i < imageFiles.length; i++) {
         const imageFile = imageFiles[i];
         const pageNumber = i + 1;
 
-        // Ensure consistent public_id naming
-        const publicId = `menu-${newVersion}-page-${pageNumber}`;
-        console.log(`Uploading image with public_id: ${publicId}`); // Add logging
+        try {
+          // Create FormData for Cloudinary
+          const formData = new FormData();
+          formData.append('file', imageFile);
+          formData.append('upload_preset', UPLOAD_PRESET);
+          formData.append('folder', 'menus');
+          formData.append('public_id', `menu-${newVersion}-page-${pageNumber}`);
 
-        // Create form data for upload
-        const formData = new FormData();
-        formData.append('file', imageFile);
-        formData.append('upload_preset', UPLOAD_PRESET);
-        formData.append('folder', 'menus');
-        formData.append('public_id', publicId);
-
-        // Add timestamp metadata to the first image
-        if (i === 0) {
-          formData.append('context', `timestamp=${new Date().toISOString()}`);
-        }
-
-        // Upload to Cloudinary
-        const response = await axios.post(
-          `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
-          formData,
-          {
-            onUploadProgress: progressEvent => {
-              const singleFileProgress =
-                progressEvent.loaded / progressEvent.total;
-              const overallProgress =
-                ((i + singleFileProgress) / imageFiles.length) * 100;
-              onProgress({
-                step: 'uploading',
-                progress: Math.round(overallProgress),
-                currentFile: pageNumber,
-                totalFiles: imageFiles.length,
-              });
+          // Upload to Cloudinary
+          const response = await axios.post(
+            `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`,
+            formData,
+            {
+              onUploadProgress: progressEvent => {
+                const progress = Math.round(
+                  (progressEvent.loaded * 100) / progressEvent.total,
+                );
+                onProgress({
+                  step: 'uploading',
+                  progress: Math.round(
+                    (i * 100 + progress) / imageFiles.length,
+                  ),
+                  currentFile: pageNumber,
+                  totalFiles: imageFiles.length,
+                });
+              },
             },
-          },
-        );
+          );
 
-        uploadedUrls.push(response.data.secure_url);
-        console.log(`Added URL to uploadedUrls: ${response.data.secure_url}`); // Add logging
+          uploadedUrls.push(response.data.secure_url);
+        } catch (error) {
+          console.error(`Error uploading image ${pageNumber}:`, error);
+        }
       }
 
       // Save to Firebase
-      console.log(`Saving menu with ${uploadedUrls.length} images to Firebase`); // Add logging
-      const saveResult = await this.saveMenu(uploadedUrls, pdfUrl);
+      const saveResult = await this.saveMenu(uploadedUrls, null);
 
       if (!saveResult.success) {
         throw new Error(`Failed to save menu to Firebase: ${saveResult.error}`);
@@ -596,7 +550,6 @@ class MenuService {
       return {
         success: true,
         imageUrls: uploadedUrls,
-        pdfUrl,
         version: newVersion,
       };
     } catch (error) {

@@ -7,9 +7,9 @@ import MenuService from './services/MenuService';
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 // Get credentials from environment variables
-const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
+const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'ds7kjyrik';
 const UPLOAD_PRESET =
-  process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET || 'qr_menu';
+  process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET || 'qr_menu_new';
 
 function AdminPage() {
   const [files, setFiles] = useState([]);
@@ -248,10 +248,7 @@ function AdminPage() {
         }).promise;
 
         // Convert canvas to blob
-        const blob = await new Promise(resolve => {
-          canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.95);
-        });
-
+        const blob = await renderPageToBlob(pdf, i);
         imageBlobs.push(blob);
 
         // Update progress
@@ -274,7 +271,7 @@ function AdminPage() {
 
       const result = await MenuService.uploadImages(
         imageFiles,
-        file, // Pass the original PDF file for proper uploading
+        null, // Don't pass the PDF file anymore
         progress => {
           setUploadProgress(progress.progress);
         },

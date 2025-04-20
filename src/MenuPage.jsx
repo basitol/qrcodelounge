@@ -8,7 +8,8 @@ import MenuService from './services/MenuService';
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 // Get credentials from environment variables
-const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'deg8w4agm';
+const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME || 'ds7kjyrik';
+
 
 // Add this after your existing imports
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
